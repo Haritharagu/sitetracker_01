@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Package, 
-  History, 
-  Settings, 
-  User as UserIcon, 
-  QrCode, 
-  MapPin, 
-  CheckCircle2, 
+import {
+  Search,
+  Package,
+  History,
+  Settings,
+  User as UserIcon,
+  QrCode,
+  MapPin,
+  CheckCircle2,
   AlertCircle,
   LogOut,
   ChevronRight,
@@ -27,28 +27,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// --- API Service ---
-const api = {
-  token: localStorage.getItem('token'),
-  setToken(token: string | null) {
-    this.token = token;
-    if (token) localStorage.setItem('token', token);
-    else localStorage.removeItem('token');
-  },
-  async fetch(url: string, options: RequestInit = {}) {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
-      ...options.headers,
-    };
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || 'API Error');
-    }
-    return res.json();
-  }
-};
+import { supabase } from './lib/supabase';
 
 // --- Components ---
 
@@ -74,7 +53,7 @@ interface AssetCardProps {
 
 const AssetCard: React.FC<AssetCardProps> = ({ asset, onCheckout, onCheckin, canAction }) => {
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-surface p-4 rounded-2xl border border-white/5 space-y-3"
@@ -106,7 +85,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, onCheckout, onCheckin, can
 
       <div className="flex gap-2 pt-2">
         {asset.status === 'available' && canAction && (
-          <button 
+          <button
             onClick={() => onCheckout(asset)}
             className="flex-1 bg-accent text-background font-bold py-3 rounded-xl active:scale-95 transition-transform"
           >
@@ -114,7 +93,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, onCheckout, onCheckin, can
           </button>
         )}
         {asset.status === 'in-use' && canAction && (
-          <button 
+          <button
             onClick={() => onCheckin(asset)}
             className="flex-1 bg-surface border border-accent text-accent font-bold py-3 rounded-xl active:scale-95 transition-transform"
           >
@@ -129,24 +108,24 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, onCheckout, onCheckin, can
   );
 };
 
-const BottomSheet = ({ isOpen, onClose, title, children }: { 
-  isOpen: boolean, 
-  onClose: () => void, 
-  title: string, 
-  children: React.ReactNode 
+const BottomSheet = ({ isOpen, onClose, title, children }: {
+  isOpen: boolean,
+  onClose: () => void,
+  title: string,
+  children: React.ReactNode
 }) => {
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           />
-          <motion.div 
+          <motion.div
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -186,22 +165,74 @@ export default function App() {
   const [checkoutPurpose, setCheckoutPurpose] = useState('');
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) setUser(JSON.parse(storedUser));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.user_metadata.name || session.user.email,
+          email: session.user.email,
+          role: 'worker'
+        });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.user_metadata.name || session.user.email,
+          email: session.user.email,
+          role: 'worker'
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
     loadData();
+    return () => subscription.unsubscribe();
   }, []);
 
   const loadData = async () => {
     try {
-      const [assetsData, sitesData] = await Promise.all([
-        api.fetch('/api/assets'),
-        api.fetch('/api/sites')
-      ]);
-      setAssets(assetsData);
-      setSites(sitesData);
-      if (api.token) {
-        const historyData = await api.fetch('/api/history');
-        setHistory(historyData);
+      const { data: assetsData, error: assetsError } = await supabase
+        .from('assets')
+        .select('*');
+
+      if (assetsError) throw assetsError;
+
+      const mappedAssets: Asset[] = (assetsData || []).map(a => ({
+        id: a.id,
+        code: a.code,
+        name: a.name,
+        category: a.category,
+        homeSite: a.home_site,
+        status: a.status,
+        currentUser: a.current_user_name,
+        currentLocation: a.current_location,
+        checkedOutAt: a.checked_out_at
+      }));
+
+      setAssets(mappedAssets);
+
+      const { data: sitesData } = await supabase.from('sites').select('*');
+      if (sitesData) setSites(sitesData);
+
+      const { data: historyData } = await supabase
+        .from('history')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (historyData) {
+        setHistory(historyData.map(h => ({
+          id: h.id,
+          assetCode: h.asset_code,
+          userName: h.user_name,
+          action: h.action,
+          location: h.location,
+          timestamp: h.created_at,
+          purpose: h.purpose
+        })));
       }
     } catch (e) {
       console.error(e);
@@ -211,14 +242,15 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+
     try {
-      const res = await api.fetch('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(Object.fromEntries(formData))
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
-      api.setToken(res.token);
-      setUser(res.user);
-      localStorage.setItem('user', JSON.stringify(res.user));
+      if (error) throw error;
       setIsLoginOpen(false);
       loadData();
     } catch (e: any) {
@@ -226,25 +258,42 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    api.setToken(null);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('user');
     setActiveTab('search');
   };
 
   const handleCheckout = async () => {
-    if (!selectedAsset) return;
+    if (!selectedAsset || !user) return;
     try {
       setIsLoading(true);
-      await api.fetch('/api/assets/checkout', {
-        method: 'POST',
-        body: JSON.stringify({
-          assetId: selectedAsset.id,
+
+      const { error: assetError } = await supabase
+        .from('assets')
+        .update({
+          status: 'in-use',
+          current_user_name: user.name,
+          current_location: checkoutLocation,
+          checked_out_at: new Date().toISOString()
+        })
+        .eq('id', selectedAsset.id);
+
+      if (assetError) throw assetError;
+
+      const { error: historyError } = await supabase
+        .from('history')
+        .insert({
+          asset_code: selectedAsset.code,
+          asset_name: selectedAsset.name,
+          user_name: user.name,
+          action: 'checkout',
           location: checkoutLocation,
           purpose: checkoutPurpose
-        })
-      });
+        });
+
+      if (historyError) throw historyError;
+
       setIsCheckoutOpen(false);
       setCheckoutLocation('');
       setCheckoutPurpose('');
@@ -257,11 +306,32 @@ export default function App() {
   };
 
   const handleCheckin = async (asset: Asset) => {
+    if (!user) return;
     try {
-      await api.fetch('/api/assets/checkin', {
-        method: 'POST',
-        body: JSON.stringify({ assetId: asset.id })
-      });
+      const { error: assetError } = await supabase
+        .from('assets')
+        .update({
+          status: 'available',
+          current_user_name: null,
+          current_location: null,
+          checked_out_at: null
+        })
+        .eq('id', asset.id);
+
+      if (assetError) throw assetError;
+
+      const { error: historyError } = await supabase
+        .from('history')
+        .insert({
+          asset_code: asset.code,
+          asset_name: asset.name,
+          user_name: user.name,
+          action: 'checkin',
+          location: asset.homeSite
+        });
+
+      if (historyError) throw historyError;
+
       loadData();
     } catch (e: any) {
       alert(e.message);
@@ -276,12 +346,12 @@ export default function App() {
         setSearchQuery(decodedText);
         scanner.clear();
         setIsScannerOpen(false);
-      }, (err) => {});
+      }, (err) => { });
     }, 100);
   };
 
-  const filteredAssets = assets.filter(a => 
-    a.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredAssets = assets.filter(a =>
+    a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     a.code.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -304,7 +374,7 @@ export default function App() {
             <button onClick={handleLogout} className="p-2 bg-white/5 rounded-xl"><LogOut size={18} /></button>
           </div>
         ) : (
-          <button 
+          <button
             onClick={() => setIsLoginOpen(true)}
             className="bg-accent text-background px-4 py-2 rounded-xl font-bold text-sm"
           >
@@ -319,14 +389,14 @@ export default function App() {
           <div className="space-y-6">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 opacity-40" size={20} />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Enter Asset Code or Name"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-surface border border-white/10 rounded-2xl py-4 pl-12 pr-16 focus:outline-none focus:border-accent transition-colors"
               />
-              <button 
+              <button
                 onClick={startScanner}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-accent/20 text-accent rounded-xl"
               >
@@ -339,9 +409,9 @@ export default function App() {
                 {searchQuery ? `Results (${filteredAssets.length})` : 'All Assets'}
               </h2>
               {filteredAssets.map(asset => (
-                <AssetCard 
-                  key={asset.id} 
-                  asset={asset} 
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
                   canAction={!!user}
                   onCheckout={(a) => {
                     setSelectedAsset(a);
@@ -365,11 +435,11 @@ export default function App() {
             <h2 className="text-xl font-bold">My Checked Out Assets</h2>
             <div className="space-y-4">
               {myAssets.map(asset => (
-                <AssetCard 
-                  key={asset.id} 
-                  asset={asset} 
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
                   canAction={true}
-                  onCheckout={(_a) => {}}
+                  onCheckout={(_a) => { }}
                   onCheckin={handleCheckin}
                 />
               ))}
@@ -422,7 +492,7 @@ export default function App() {
                 <span className="text-xs font-bold">Manage Users</span>
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <h3 className="text-sm font-bold opacity-50 uppercase tracking-widest">Asset List</h3>
               {assets.map(asset => (
@@ -445,15 +515,15 @@ export default function App() {
           <Search size={24} />
           <span>Search</span>
         </button>
-        <button 
-          onClick={() => user ? setActiveTab('my-assets') : setIsLoginOpen(true)} 
+        <button
+          onClick={() => user ? setActiveTab('my-assets') : setIsLoginOpen(true)}
           className={cn("nav-item", activeTab === 'my-assets' && "active")}
         >
           <Package size={24} />
           <span>My Assets</span>
         </button>
-        <button 
-          onClick={() => user ? setActiveTab('history') : setIsLoginOpen(true)} 
+        <button
+          onClick={() => user ? setActiveTab('history') : setIsLoginOpen(true)}
           className={cn("nav-item", activeTab === 'history' && "active")}
         >
           <History size={24} />
@@ -472,26 +542,26 @@ export default function App() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-bold opacity-50 uppercase">Email Address</label>
-            <input 
-              name="email" 
-              type="email" 
-              required 
+            <input
+              name="email"
+              type="email"
+              required
               placeholder="worker@site.com"
               className="w-full bg-white/5 border border-white/10 rounded-xl p-4 focus:outline-none focus:border-accent"
             />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-bold opacity-50 uppercase">Password</label>
-            <input 
-              name="password" 
-              type="password" 
-              required 
+            <input
+              name="password"
+              type="password"
+              required
               placeholder="••••••"
               className="w-full bg-white/5 border border-white/10 rounded-xl p-4 focus:outline-none focus:border-accent"
             />
           </div>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="w-full bg-accent text-background font-bold py-4 rounded-xl mt-4"
           >
             Login to SiteTrack
@@ -515,11 +585,11 @@ export default function App() {
               </div>
             </div>
           )}
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-bold opacity-50 uppercase">Your Current Site/Location</label>
-              <select 
+              <select
                 value={checkoutLocation}
                 onChange={(e) => setCheckoutLocation(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl p-4 focus:outline-none focus:border-accent appearance-none"
@@ -528,8 +598,8 @@ export default function App() {
                 {sites.map(s => <option key={s.id} value={s.name} className="bg-surface">{s.name}</option>)}
                 <option value="custom" className="bg-surface">Other (Enter below)</option>
               </select>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Specific location (e.g. Block 3)"
                 value={checkoutLocation === 'custom' ? '' : checkoutLocation}
                 onChange={(e) => setCheckoutLocation(e.target.value)}
@@ -538,15 +608,15 @@ export default function App() {
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold opacity-50 uppercase">Purpose (Optional)</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="e.g. Site Maintenance"
                 value={checkoutPurpose}
                 onChange={(e) => setCheckoutPurpose(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl p-4 focus:outline-none focus:border-accent"
               />
             </div>
-            <button 
+            <button
               onClick={handleCheckout}
               disabled={!checkoutLocation || isLoading}
               className="w-full bg-accent text-background font-bold py-4 rounded-xl mt-4 disabled:opacity-50"
@@ -559,7 +629,7 @@ export default function App() {
 
       <AnimatePresence>
         {isScannerOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
