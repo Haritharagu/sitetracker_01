@@ -1,0 +1,20 @@
+{
+  "name": "SiteTrack Asset Management",
+  "short_name": "SiteTrack",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0f14",
+  "theme_color": "#f0a500",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/sitetrack/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/sitetrack/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

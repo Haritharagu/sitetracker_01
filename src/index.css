@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-background: #0d0f14;
+  --color-surface: #161923;
+  --color-accent: #f0a500;
+  --color-success: #00d4aa;
+  --color-danger: #ff4d6d;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-white font-sans;
+  }
+}
+
+.bottom-sheet {
+  @apply fixed bottom-0 left-0 right-0 bg-surface rounded-t-3xl p-6 shadow-2xl z-50;
+}
+
+.nav-item {
+  @apply flex flex-col items-center justify-center gap-1 text-xs opacity-60 transition-opacity;
+}
+
+.nav-item.active {
+  @apply opacity-100 text-accent;
+}

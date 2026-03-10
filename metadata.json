@@ -1,0 +1,5 @@
+{
+  "name": "SiteTrack",
+  "description": "Mobile-first Asset Tracking & Checkout Management system for multi-site equipment management.",
+  "requestFramePermissions": ["camera"]
+}
